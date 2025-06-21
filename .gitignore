@@ -4,14 +4,11 @@
 *.dll
 *.so
 *.dylib
-auction
+/auction
+/cmd/auction/auction
 auction.exe
 
-# Arquivos de teste
-*.test
-
-# Arquivos de cobertura de teste
-*.out
+# Arquivos de cobertura de teste (manter para não versionar relatórios)
 coverage.html
 coverage.txt
 
@@ -79,4 +76,3 @@ tmp/
 
 # Coverage files
 profile.cov
-coverage.html

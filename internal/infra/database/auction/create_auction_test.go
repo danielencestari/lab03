@@ -2,12 +2,14 @@ package auction
 
 import (
 	"context"
-	"github.com/danielencestari/lab03/internal/entity/auction_entity"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/danielencestari/lab03/internal/entity/auction_entity"
+
 	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -28,7 +30,7 @@ func setupTestDB() (*mongo.Database, func()) {
 	return db, cleanup
 }
 
-func TestCreateAuctionWithAutoClose(t *testing.T) {
+func TestCreateAuctionWithPersistentState(t *testing.T) {
 	// Set short auction interval for testing
 	os.Setenv("AUCTION_INTERVAL", "2s")
 	defer os.Unsetenv("AUCTION_INTERVAL")
@@ -57,6 +59,13 @@ func TestCreateAuctionWithAutoClose(t *testing.T) {
 	foundAuction, err := repo.FindAuctionById(ctx, auction.Id)
 	assert.Nil(t, err)
 	assert.Equal(t, auction_entity.Active, foundAuction.Status)
+
+	// Verify EndTime was persisted in database
+	filter := bson.M{"_id": auction.Id}
+	var auctionMongo AuctionEntityMongo
+	mongoErr := repo.Collection.FindOne(ctx, filter).Decode(&auctionMongo)
+	assert.Nil(t, mongoErr)
+	assert.Greater(t, auctionMongo.EndTime, auctionMongo.Timestamp)
 
 	// Wait for auto-close (2s + buffer)
 	time.Sleep(3 * time.Second)
