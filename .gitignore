@@ -1,0 +1,82 @@
+# Binários compilados do Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+auction
+auction.exe
+
+# Arquivos de teste
+*.test
+
+# Arquivos de cobertura de teste
+*.out
+coverage.html
+coverage.txt
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# IDE e Editores
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env.local
+.env.development
+.env.test
+.env.production
+*.env.backup
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+mongodb-data/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+build/
+dist/
+bin/
+
+# Go sum backup
+go.sum.backup
+
+# Air (live reload for Go)
+.air.toml
+tmp/
+
+# Coverage files
+profile.cov
+coverage.html
