@@ -29,17 +29,27 @@ Sistema de leilões desenvolvido em Go com funcionalidade de fechamento automát
 
 ### 1. Clonar o Repositório
 ```bash
-git clone https://github.com/devfullcycle/labs-auction-goexpert.git
-cd labs-auction-goexpert
+git clone https://github.com/danielencestari/lab03.git
+cd lab03
 ```
 
 ### 2. Configuração de Variáveis de Ambiente
 
-O arquivo `.env` está localizado em `cmd/auction/.env`:
+Crie o arquivo `.env` no diretório `cmd/auction/`:
+
+```bash
+# Criar o arquivo de ambiente
+touch cmd/auction/.env
+```
+
+**Exemplo do arquivo `cmd/auction/.env`:**
 
 ```env
+# Configuração do MongoDB
 MONGODB_URL=mongodb://mongodb:27017
 MONGODB_DB=auctions
+
+# Configuração dos Leilões
 AUCTION_INTERVAL=5m
 MAX_CONCURRENT_AUCTIONS=50
 ```
@@ -49,6 +59,12 @@ MAX_CONCURRENT_AUCTIONS=50
 - `MAX_CONCURRENT_AUCTIONS`: Máximo de leilões simultâneos (padrão: 50)
 - `MONGODB_URL`: URL de conexão com MongoDB
 - `MONGODB_DB`: Nome do banco de dados
+
+**Exemplos de `AUCTION_INTERVAL`:**
+- `30s` - 30 segundos
+- `5m` - 5 minutos  
+- `1h` - 1 hora
+- `2h30m` - 2 horas e 30 minutos
 
 ### 3. Executar com Docker Compose
 
