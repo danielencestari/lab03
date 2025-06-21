@@ -155,10 +155,12 @@ curl "http://localhost:8080/auction?status=0"
 3. **Fechamento**: Após o tempo, o status é automaticamente alterado para `Completed`
 4. **Controle**: Sistema mantém controle de leilões ativos (máximo 50)
 
-### Tratamento de Restart
+### Tratamento de Restart (Estado Persistente)
 
-- Ao inicializar a aplicação, todos os leilões ativos são automaticamente fechados
-- Isso garante consistência após reinicializações não planejadas
+- **Persistência de Estado**: Cada leilão tem seu tempo de término (`EndTime`) salvo no MongoDB
+- **Recuperação Inteligente**: Ao reiniciar, o sistema recupera leilões ativos e recalcula o tempo restante
+- **Continuidade**: Leilões continuam de onde pararam, mantendo o tempo correto
+- **Leilões Expirados**: Leilões que expiraram durante a parada são fechados imediatamente
 
 ### Validação de Lances
 
@@ -167,58 +169,203 @@ curl "http://localhost:8080/auction?status=0"
 
 ## 🧪 Testes
 
+### Pré-requisitos para Testes
+Para executar os testes que validam o fechamento automatizado, é necessário ter o MongoDB rodando:
+
+#### Opção 1: Usando Docker/Colima
+```bash
+# Se Docker não estiver rodando, iniciar Colima
+colima start
+
+# Iniciar MongoDB
+docker run -d --name mongodb -p 27017:27017 mongo:latest
+
+# Verificar se está rodando
+docker ps | grep mongodb
+```
+
+#### Opção 2: Usando Docker Compose
+```bash
+# Iniciar apenas o MongoDB
+docker-compose up -d mongodb
+```
+
 ### Executar Todos os Testes
 ```bash
 go test ./...
 ```
 
-### Executar Testes Específicos
+### Testes de Fechamento Automatizado
+
+#### 🎯 Teste Principal - Validação de Fechamento Automático
 ```bash
-# Testes de fechamento automático
-go test ./internal/infra/database/auction/ -v
-
-# Teste específico
-go test ./internal/infra/database/auction/ -run TestCreateAuctionWithAutoClose -v
+# Teste completo de fechamento automatizado (3 segundos)
+go test -v ./internal/infra/database/auction -run TestAutoCloseAuctionValidation
 ```
 
-### Testes Implementados
+**O que este teste valida:**
+- ✅ Leilão criado com status `Active`
+- ✅ `EndTime` persistido corretamente no MongoDB
+- ✅ Leilão permanece ativo durante o período configurado
+- ✅ Leilão fechado automaticamente após 3 segundos
+- ✅ Status alterado para `Completed`
+- ✅ Contador de leilões ativos decrementado
 
-- ✅ **TestCreateAuctionWithAutoClose**: Valida fechamento automático por tempo
-- ✅ **TestMaxConcurrentAuctions**: Valida limite de leilões simultâneos
-- ✅ **TestUpdateAuctionStatus**: Valida atualização de status
-- ✅ **TestConcurrentAuctionCreation**: Valida criação concorrente
-- ✅ **TestAuctionDurationParsing**: Valida parsing de duração
-
-## 🏗️ Arquitetura
-
-### Estrutura do Projeto
-```
-├── cmd/auction/          # Aplicação principal
-├── configuration/        # Configurações (DB, Logger)
-├── internal/
-│   ├── entity/          # Entidades de domínio
-│   ├── usecase/         # Casos de uso
-│   ├── infra/
-│   │   ├── api/         # Controllers e validações
-│   │   └── database/    # Repositórios
-│   └── internal_error/  # Tratamento de erros
-├── docker-compose.yml   # Orquestração
-└── Dockerfile          # Container da aplicação
+#### 🔄 Teste de Múltiplos Leilões
+```bash
+# Teste com 5 leilões simultâneos (4 segundos cada)
+go test -v ./internal/infra/database/auction -run TestMultipleAuctionsAutoClose
 ```
 
-### Padrões Utilizados
+**O que este teste valida:**
+- ✅ Criação de 5 leilões simultâneos
+- ✅ Todos iniciados com status `Active`
+- ✅ Contador de leilões ativos = 5
+- ✅ Todos fechados automaticamente após 4 segundos
+- ✅ Contador zerado após fechamento
 
-- **Clean Architecture**: Separação clara de responsabilidades
-- **Repository Pattern**: Abstração de acesso a dados
-- **Dependency Injection**: Inversão de dependências
-- **Concurrent Programming**: Goroutines para operações assíncronas
+#### ⚙️ Teste de Lógica (Sem MongoDB)
+```bash
+# Teste de parsing de duração - não requer MongoDB
+go test -v ./internal/infra/database/auction -run TestAutoCloseLogicValidation
+```
 
-## 🔐 Tratamento de Erros
+**O que este teste valida:**
+- ✅ Parsing correto de durações: `2s`, `5m`, `1h`
+- ✅ Tratamento de valores inválidos (usa padrão 5m)
+- ✅ Tratamento de valores vazios (usa padrão 5m)
 
-- **Padrão consistente**: Uso de `internal_error.InternalError`
-- **Logs estruturados**: Info e Error com contexto
-- **Validações**: Entrada e regras de negócio
-- **Thread safety**: Mutexes para operações concorrentes
+#### 🔧 Teste de Robustez
+```bash
+# Teste de robustez do sistema (3 segundos)
+go test -v ./internal/infra/database/auction -run TestAutoCloseRobustness
+```
+
+**O que este teste valida:**
+- ✅ Múltiplas verificações durante período ativo
+- ✅ Status permanece `Active` durante o período
+- ✅ Fechamento preciso após tempo configurado
+
+#### 🕐 Teste de Diferentes Durações
+```bash
+# Teste com diferentes intervalos de tempo
+go test -v ./internal/infra/database/auction -run TestAutoCloseWithDifferentDurations
+```
+
+### Executar Todos os Testes de Fechamento Automático
+```bash
+# Executar todos os testes de auto-close
+go test -v ./internal/infra/database/auction -run TestAutoClose
+```
+
+### Executar Testes Específicos por Arquivo
+```bash
+# Testes do arquivo auto_close_test.go
+go test -v ./internal/infra/database/auction/auto_close_test.go ./internal/infra/database/auction/create_auction.go
+
+# Testes de recovery (requer MongoDB)
+go test -v ./internal/infra/database/auction -run TestAuctionRecovery
+
+# Todos os testes de auction
+go test -v ./internal/infra/database/auction/
+```
+
+### 📊 Resultados Esperados dos Testes
+
+Quando os testes são executados com sucesso, você verá saídas como:
+
+```
+=== RUN   TestAutoCloseAuctionValidation
+    auto_close_test.go:62: === INICIANDO TESTE DE FECHAMENTO AUTOMATIZADO ===
+    auto_close_test.go:74: Leilão criado com ID: cc56b7f6-52c6-4871-a609-93295a111a7c
+    auto_close_test.go:85: Leilão salvo no banco de dados
+    auto_close_test.go:94: Status inicial confirmado: ACTIVE
+    auto_close_test.go:108: EndTime persistido corretamente: 2025-06-21 15:51:19 -0300 -03
+    auto_close_test.go:116: Status após 2s: ainda ACTIVE (conforme esperado)
+    auto_close_test.go:122: Tempo decorrido: 4.030200999s
+    auto_close_test.go:129: ✅ SUCESSO: Leilão fechado automaticamente com status COMPLETED
+    auto_close_test.go:134: ✅ SUCESSO: Contador de leilões ativos decrementado corretamente
+    auto_close_test.go:136: === TESTE DE FECHAMENTO AUTOMATIZADO CONCLUÍDO COM SUCESSO ===
+--- PASS: TestAutoCloseAuctionValidation (4.05s)
+```
+
+### 🔍 Troubleshooting dos Testes
+
+#### Erro: "MongoDB não está disponível"
+```bash
+# Verificar se MongoDB está rodando
+docker ps | grep mongodb
+
+# Se não estiver, iniciar:
+docker run -d --name mongodb -p 27017:27017 mongo:latest
+```
+
+#### Erro: "Cannot connect to Docker daemon"
+```bash
+# Iniciar Colima (macOS)
+colima start
+
+# Verificar Docker
+docker --version
+```
+
+#### Testes que são pulados (SKIP)
+Alguns testes são automaticamente pulados se o MongoDB não estiver disponível:
+- `TestAuctionRecoveryAfterRestart`
+- `TestExpiredAuctionRecovery`
+- `TestAutoCloseAuctionValidation` (se MongoDB indisponível)
+
+### 📝 Arquivos de Teste
+
+| Arquivo | Descrição |
+|---------|-----------|
+| `auto_close_test.go` | **Testes principais de fechamento automático** |
+| `create_auction_test.go` | Testes de criação e funcionalidades básicas |
+| `auction_recovery_test.go` | Testes de recuperação após restart |
+
+### 🚀 Exemplo Prático - Executando os Testes
+
+#### Passo a Passo Completo:
+
+```bash
+# 1. Clonar o projeto (se ainda não fez)
+git clone https://github.com/danielencestari/lab03.git
+cd lab03/desafio_concorrrencia_leilao/lab03-leilao-goexpert
+
+# 2. Iniciar infraestrutura
+colima start                                    # Iniciar Colima (se no macOS)
+docker run -d --name mongodb -p 27017:27017 mongo:latest  # Iniciar MongoDB
+
+# 3. Verificar se MongoDB está rodando
+docker ps | grep mongodb
+
+# 4. Executar teste principal de fechamento automático
+go test -v ./internal/infra/database/auction -run TestAutoCloseAuctionValidation
+
+# 5. Executar todos os testes de fechamento automático
+go test -v ./internal/infra/database/auction -run TestAutoClose
+
+# 6. Executar todos os testes do módulo auction
+go test -v ./internal/infra/database/auction/
+```
+
+#### Resultado Esperado:
+```
+✅ TestAutoCloseAuctionValidation - PASS (4.05s)
+✅ TestMultipleAuctionsAutoClose - PASS (5.05s)  
+✅ TestAutoCloseLogicValidation - PASS (0.00s)
+✅ TestAutoCloseWithDifferentDurations - PASS (3.03s)
+✅ TestAutoCloseRobustness - PASS (3.44s)
+```
+
+#### Limpeza (Opcional):
+```bash
+# Parar e remover container MongoDB
+docker stop mongodb && docker rm mongodb
+
+# Parar Colima
+colima stop
+```
 
 ## 🚨 Limitações e Considerações
 
@@ -226,19 +373,3 @@ go test ./internal/infra/database/auction/ -run TestCreateAuctionWithAutoClose -
 - **Restart fecha leilões ativos** (comportamento esperado)
 - **MongoDB obrigatório** para persistência
 - **Dependência de variáveis de ambiente** para configuração
-
-## 🤝 Contribuição
-
-1. Fork do projeto
-2. Criar branch para feature (`git checkout -b feature/nova-feature`)
-3. Commit das mudanças (`git commit -am 'Adiciona nova feature'`)
-4. Push para branch (`git push origin feature/nova-feature`)
-5. Criar Pull Request
-
-## 📄 Licença
-
-Este projeto é parte do curso GoExpert da Full Cycle.
-
----
-
-**Desenvolvido com ❤️ em Go para o curso GoExpert da Full Cycle** 

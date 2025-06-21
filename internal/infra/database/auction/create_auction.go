@@ -2,12 +2,13 @@ package auction
 
 import (
 	"context"
-	"github.com/danielencestari/lab03/configuration/logger"
-	"github.com/danielencestari/lab03/internal/entity/auction_entity"
-	"github.com/danielencestari/lab03/internal/internal_error"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/danielencestari/lab03/configuration/logger"
+	"github.com/danielencestari/lab03/internal/entity/auction_entity"
+	"github.com/danielencestari/lab03/internal/internal_error"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,6 +22,7 @@ type AuctionEntityMongo struct {
 	Condition   auction_entity.ProductCondition `bson:"condition"`
 	Status      auction_entity.AuctionStatus    `bson:"status"`
 	Timestamp   int64                           `bson:"timestamp"`
+	EndTime     int64                           `bson:"end_time"`
 }
 
 type AuctionRepository struct {
@@ -52,6 +54,10 @@ func (ar *AuctionRepository) CreateAuction(
 		return internal_error.NewInternalServerError("Maximum concurrent auctions limit reached")
 	}
 
+	// Calcular tempo de término do leilão
+	auctionDuration := ar.getAuctionDuration()
+	endTime := auctionEntity.Timestamp.Add(auctionDuration)
+
 	auctionEntityMongo := &AuctionEntityMongo{
 		Id:          auctionEntity.Id,
 		ProductName: auctionEntity.ProductName,
@@ -60,6 +66,7 @@ func (ar *AuctionRepository) CreateAuction(
 		Condition:   auctionEntity.Condition,
 		Status:      auctionEntity.Status,
 		Timestamp:   auctionEntity.Timestamp.Unix(),
+		EndTime:     endTime.Unix(),
 	}
 
 	_, err := ar.Collection.InsertOne(ctx, auctionEntityMongo)
@@ -120,6 +127,41 @@ func (ar *AuctionRepository) startIndividualAuctionMonitor(auctionEntity *auctio
 	logger.Info("Auction closed automatically due to timeout")
 }
 
+func (ar *AuctionRepository) startIndividualAuctionMonitorWithEndTime(auctionId string, endTime time.Time) {
+	now := time.Now()
+	remainingTime := endTime.Sub(now)
+
+	// Se o leilão já expirou, feche imediatamente
+	if remainingTime <= 0 {
+		ctx := context.Background()
+		if err := ar.UpdateAuctionStatus(ctx, auctionId, auction_entity.Completed); err != nil {
+			logger.Error("Error closing expired auction on restart", err)
+		}
+		logger.Info("Expired auction closed immediately on restart")
+		return
+	}
+
+	timer := time.NewTimer(remainingTime)
+
+	<-timer.C
+
+	// Create context for the update operation
+	ctx := context.Background()
+
+	// Update auction status to Completed
+	if err := ar.UpdateAuctionStatus(ctx, auctionId, auction_entity.Completed); err != nil {
+		logger.Error("Error closing auction automatically", err)
+		return
+	}
+
+	// Decrement active auctions counter
+	ar.auctionCountMutex.Lock()
+	ar.activeAuctionsCount--
+	ar.auctionCountMutex.Unlock()
+
+	logger.Info("Auction closed automatically after restart with remaining time")
+}
+
 func (ar *AuctionRepository) checkActiveAuctionsLimit() bool {
 	ar.auctionCountMutex.Lock()
 	defer ar.auctionCountMutex.Unlock()
@@ -146,16 +188,31 @@ func (ar *AuctionRepository) handleActiveAuctionsOnRestart() {
 		return
 	}
 
-	// Close all active auctions
+	// Reiniciar leilões com base no tempo restante
+	recoveredCount := 0
 	for _, auction := range activeAuctions {
-		if err := ar.UpdateAuctionStatus(ctx, auction.Id, auction_entity.Completed); err != nil {
-			logger.Error("Error closing auction on restart", err)
-			continue
+		endTime := time.Unix(auction.EndTime, 0)
+
+		// Incrementar contador de leilões ativos
+		ar.auctionCountMutex.Lock()
+		if ar.activeAuctionsCount < ar.getMaxConcurrentAuctions() {
+			ar.activeAuctionsCount++
+			ar.auctionCountMutex.Unlock()
+
+			// Iniciar goroutine com tempo restante
+			go ar.startIndividualAuctionMonitorWithEndTime(auction.Id, endTime)
+			recoveredCount++
+		} else {
+			ar.auctionCountMutex.Unlock()
+			// Se exceder o limite, feche o leilão
+			if err := ar.UpdateAuctionStatus(ctx, auction.Id, auction_entity.Completed); err != nil {
+				logger.Error("Error closing auction due to limit on restart", err)
+			}
 		}
 	}
 
 	if len(activeAuctions) > 0 {
-		logger.Info("Active auctions closed after application restart")
+		logger.Info("Active auctions recovered after restart")
 	}
 }
 
